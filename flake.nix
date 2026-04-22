@@ -19,8 +19,8 @@
           clippy
           vulkan-loader
           vulkan-tools
+          wgsl-analyzer
         ];
-
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
           pkgs.wayland
           pkgs.libxkbcommon
