@@ -4,7 +4,7 @@ use anyhow::Ok;
 use wgpu::util::DeviceExt;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
-use crate::shader_model::{VERTICES, Vertex};
+use crate::shader_model::{INDICES, VERTICES, Vertex};
 
 pub struct State {
     surface: wgpu::Surface<'static>,
@@ -14,8 +14,9 @@ pub struct State {
     is_surface_configured: bool,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
     window: Arc<Window>,
-    num_vertices: u32,
 }
 
 impl State {
@@ -122,7 +123,13 @@ impl State {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let num_vertices = VERTICES.len() as u32;
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let num_indices = INDICES.len() as u32;
 
         Ok(Self {
             surface,
@@ -132,8 +139,9 @@ impl State {
             is_surface_configured: false,
             render_pipeline,
             vertex_buffer,
+            index_buffer,
+            num_indices,
             window,
-            num_vertices,
         })
     }
 
@@ -208,7 +216,8 @@ impl State {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..self.num_vertices, 0..1);
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
