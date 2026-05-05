@@ -1,6 +1,8 @@
 mod app;
-mod shader_model;
+mod constants;
 mod state;
+mod texture;
+mod vertex;
 
 fn main() {
     app::run().unwrap();

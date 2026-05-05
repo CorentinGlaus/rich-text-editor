@@ -22,8 +22,7 @@ impl App {
 
 impl ApplicationHandler<State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        #[allow(unused_mut)]
-        let mut window_attributes = Window::default_attributes().with_title("My Editor");
+        let window_attributes = Window::default_attributes().with_title("My Editor");
         let window = Arc::new(
             event_loop
                 .create_window(window_attributes)
@@ -33,8 +32,7 @@ impl ApplicationHandler<State> for App {
         self.state = Some(pollster::block_on(State::new(window)).expect("Failed to create state"));
     }
 
-    #[allow(unused_mut)]
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: State) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: State) {
         self.state = Some(event);
     }
 
