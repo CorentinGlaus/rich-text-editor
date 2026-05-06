@@ -20,12 +20,33 @@
           vulkan-loader
           vulkan-tools
           wgsl-analyzer
+          clippy
+          vscode-extensions.vadimcn.vscode-lldb
         ];
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
           pkgs.wayland
           pkgs.libxkbcommon
           pkgs.vulkan-loader
         ];
+        shellHook = ''
+          mkdir -p .zed
+          cat > .zed/settings.json <<EOF
+          {
+            "dap": {
+              "CodeLLDB": {
+                "binary": "${pkgs.vscode-extensions.vadimcn.vscode-lldb}/share/vscode/extensions/vadimcn.vscode-lldb/adapter/codelldb"
+              }
+            },
+            "lsp": {
+              "rust-analyzer": {
+                "initialization_options": {
+                  "check": { "command": "clippy" }
+                }
+              }
+            }
+          }
+          EOF
+        '';
       };
     };
 }
