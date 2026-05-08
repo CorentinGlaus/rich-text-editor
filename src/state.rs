@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Ok;
-use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
@@ -136,7 +135,7 @@ impl State {
 
         let instances = (0..4)
             .map(|i| {
-                let position = cgmath::Vector3 {
+                let position = glam::Vec3 {
                     x: (100 + (i * 200)) as f32,
                     y: 100.0,
                     z: 0.0,
@@ -144,8 +143,8 @@ impl State {
 
                 Instance {
                     position,
-                    angle_x: 0.0,
-                    scale: cgmath::Vector3 {
+                    angle_z: 0.0,
+                    scale: glam::Vec3 {
                         x: 100.0,
                         y: 100.0,
                         z: 0.0,

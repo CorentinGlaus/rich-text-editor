@@ -1,21 +1,16 @@
-use cgmath::Rotation3;
-
 pub struct Instance {
-    pub position: cgmath::Vector3<f32>,
-    pub angle_x: f32,
-    pub scale: cgmath::Vector3<f32>,
+    pub position: glam::Vec3,
+    pub angle_z: f32,
+    pub scale: glam::Vec3,
 }
 
 impl Instance {
     pub fn to_raw(&self) -> InstanceRaw {
         InstanceRaw {
-            model: (cgmath::Matrix4::from_translation(self.position)
-                * cgmath::Matrix4::from(cgmath::Quaternion::from_axis_angle(
-                    cgmath::Vector3::unit_z(),
-                    cgmath::Deg(self.angle_x),
-                ))
-                * cgmath::Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z))
-            .into(),
+            model: (glam::Mat4::from_translation(self.position)
+                * glam::Mat4::from_rotation_z(self.angle_z)
+                * glam::Mat4::from_scale(self.scale))
+            .to_cols_array_2d(),
         }
     }
 }
