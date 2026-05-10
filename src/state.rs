@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Ok;
-use wgpu::util::DeviceExt;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
 use crate::{
@@ -9,10 +8,8 @@ use crate::{
         Camera, CameraUniform, create_camera_bind_group, create_camera_bind_group_layout,
         create_camera_buffer,
     },
-    constants::{INDICES, VERTICES},
-    instance::{Instance, InstanceRaw},
+    rectangle::{batch::RectangleBatch, instance::RectangleInstance},
     texture::Texture,
-    vertex::Vertex,
 };
 
 pub struct State {
@@ -21,10 +18,7 @@ pub struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
-    render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    num_indices: u32,
+    #[expect(unused)]
     texture_bind_group: wgpu::BindGroup,
     #[expect(dead_code)]
     texture: Texture,
@@ -33,8 +27,7 @@ pub struct State {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    instances: Vec<Instance>,
-    instance_buffer: wgpu::Buffer,
+    rectangle_batch: RectangleBatch,
 }
 
 impl State {
@@ -98,8 +91,6 @@ impl State {
         let texture_bind_group_layout = Texture::bind_group_layout(&device);
         let texture_bind_group = texture.create_bind_group(&device, &texture_bind_group_layout);
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-
         let camera = Camera {
             width: config.width,
             height: config.height,
@@ -111,54 +102,33 @@ impl State {
         let camera_bind_group =
             create_camera_bind_group(&device, &camera_buffer, &camera_bind_group_layout);
 
-        let render_pipeline = Self::new_render_pipeline(
-            &device,
-            &shader,
-            &config,
-            &texture_bind_group_layout,
-            &camera_bind_group_layout,
-        );
+        let mut rectangle_batch = RectangleBatch::new(&device, &config, &camera_bind_group_layout);
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
+        let instance1 = RectangleInstance {
+            position: glam::Vec3::new(300.0, 300.0, 0.0),
+            angle_z: 0.0,
+            scale: glam::Vec3::new(300.0, 300.0, 300.0),
+            color: glam::Vec3::new(1.0, 0.0, 0.0),
+        };
+        let instance2 = RectangleInstance {
+            position: glam::Vec3::new(700.0, 300.0, 0.0),
+            angle_z: 0.0,
+            scale: glam::Vec3::new(300.0, 300.0, 300.0),
+            color: glam::Vec3::new(1.0, 0.0, 0.0),
+        };
+        let handle1 = rectangle_batch.create(instance1);
+        let handle2 = rectangle_batch.create(instance2);
+        rectangle_batch.modify(handle2, |instance| {
+            instance.position += glam::Vec3::new(0.0, 100.0, 0.0);
         });
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        let num_indices = INDICES.len() as u32;
-
-        let instances = (0..4)
-            .map(|i| {
-                let position = glam::Vec3 {
-                    x: (100 + (i * 200)) as f32,
-                    y: 100.0,
-                    z: 0.0,
-                };
-
-                Instance {
-                    position,
-                    angle_z: 0.0,
-                    scale: glam::Vec3 {
-                        x: 100.0,
-                        y: 100.0,
-                        z: 0.0,
-                    },
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        rectangle_batch.remove(handle1);
+        let instance3 = RectangleInstance {
+            position: glam::Vec3::new(300.0, 1000.0, 0.0),
+            angle_z: 0.0,
+            scale: glam::Vec3::new(300.0, 300.0, 300.0),
+            color: glam::Vec3::new(0.0, 1.0, 0.0),
+        };
+        rectangle_batch.create(instance3);
 
         Ok(Self {
             surface,
@@ -166,10 +136,6 @@ impl State {
             queue,
             config,
             is_surface_configured: false,
-            render_pipeline,
-            vertex_buffer,
-            index_buffer,
-            num_indices,
             texture_bind_group,
             texture,
             window,
@@ -177,8 +143,7 @@ impl State {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            instances,
-            instance_buffer,
+            rectangle_batch,
         })
     }
 
@@ -263,13 +228,9 @@ impl State {
                 multiview_mask: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as u32);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+
+            self.rectangle_batch.draw(&self.device, &mut render_pass);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -287,62 +248,4 @@ impl State {
     }
 
     pub fn update(&mut self) {}
-}
-
-impl State {
-    fn new_render_pipeline(
-        device: &wgpu::Device,
-        shader: &wgpu::ShaderModule,
-        config: &wgpu::SurfaceConfiguration,
-        texture_bind_group_layout: &wgpu::BindGroupLayout,
-        camera_bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> wgpu::RenderPipeline {
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    Some(texture_bind_group_layout),
-                    Some(camera_bind_group_layout),
-                ],
-                immediate_size: 0,
-            });
-
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc(), InstanceRaw::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview_mask: None,
-            cache: None,
-        })
-    }
 }
