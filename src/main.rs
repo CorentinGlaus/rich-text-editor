@@ -1,8 +1,7 @@
 mod app;
 mod camera;
 mod constants;
-mod rectangle;
-mod state;
+mod renderer;
 mod texture;
 mod vertex;
 

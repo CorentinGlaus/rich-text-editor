@@ -8,10 +8,10 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::state::State;
+use crate::renderer::Renderer;
 
 pub struct App {
-    state: Option<State>,
+    state: Option<Renderer>,
 }
 
 impl App {
@@ -20,7 +20,7 @@ impl App {
     }
 }
 
-impl ApplicationHandler<State> for App {
+impl ApplicationHandler<Renderer> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes().with_title("My Editor");
         let window = Arc::new(
@@ -29,10 +29,11 @@ impl ApplicationHandler<State> for App {
                 .expect("Failed to create window"),
         );
 
-        self.state = Some(pollster::block_on(State::new(window)).expect("Failed to create state"));
+        self.state =
+            Some(pollster::block_on(Renderer::new(window)).expect("Failed to create state"));
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: State) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: Renderer) {
         self.state = Some(event);
     }
 
