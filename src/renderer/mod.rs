@@ -1,4 +1,6 @@
+pub mod image;
 pub mod rectangle;
+pub mod texture_manager;
 
 use std::sync::Arc;
 
@@ -10,8 +12,12 @@ use crate::{
         Camera, CameraUniform, create_camera_bind_group, create_camera_bind_group_layout,
         create_camera_buffer,
     },
-    renderer::rectangle::{batch::RectangleBatch, instance::RectangleInstance},
-    texture::Texture,
+    renderer::{
+        image::{batch::ImageBatch, instance::ImageInstance},
+        rectangle::{batch::RectangleBatch, instance::RectangleInstance},
+        texture_manager::TextureManager,
+    },
+    texture_bytes,
 };
 
 pub struct Renderer {
@@ -20,16 +26,14 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
-    #[expect(unused)]
-    texture_bind_group: wgpu::BindGroup,
-    #[expect(dead_code)]
-    texture: Texture,
     window: Arc<Window>,
     camera: Camera,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     rectangle_batch: RectangleBatch,
+    image_batch: ImageBatch,
+    texture_manager: TextureManager,
 }
 
 impl Renderer {
@@ -83,16 +87,6 @@ impl Renderer {
             desired_maximum_frame_latency: 2,
         };
 
-        let texture = Texture::from_bytes(
-            &device,
-            &queue,
-            include_bytes!("happy-tree.png"),
-            "Happy tree",
-        )?;
-
-        let texture_bind_group_layout = Texture::bind_group_layout(&device);
-        let texture_bind_group = texture.create_bind_group(&device, &texture_bind_group_layout);
-
         let camera = Camera {
             width: config.width,
             height: config.height,
@@ -104,7 +98,18 @@ impl Renderer {
         let camera_bind_group =
             create_camera_bind_group(&device, &camera_buffer, &camera_bind_group_layout);
 
+        let mut texture_manager = TextureManager::new(&device, (2048, 2048))
+            .expect("Error when creating the texture manager");
+
         let mut rectangle_batch = RectangleBatch::new(&device, &config, &camera_bind_group_layout);
+        let mut image_batch = ImageBatch::new(
+            &device,
+            &config,
+            &[
+                Some(&camera_bind_group_layout),
+                Some(texture_manager.bind_group_layout()),
+            ],
+        );
 
         let instance1 = RectangleInstance {
             position: glam::Vec3::new(300.0, 300.0, 0.0),
@@ -124,13 +129,36 @@ impl Renderer {
             instance.position += glam::Vec3::new(0.0, 100.0, 0.0);
         });
         rectangle_batch.remove(handle1);
-        let instance3 = RectangleInstance {
+
+        let texture_handle1 = texture_manager
+            .add(&device, &queue, texture_bytes!("happy-tree.png"))
+            .expect("Error when creating image");
+        let texture_handle2 = texture_manager
+            .add(&device, &queue, texture_bytes!("house.png"))
+            .expect("Error when creating image");
+        let uvs1 = texture_manager
+            .uv(texture_handle1)
+            .expect("Error when getting UV");
+        let uvs2 = texture_manager
+            .uv(texture_handle2)
+            .expect("Error when getting UV");
+        let image1 = ImageInstance {
             position: glam::Vec3::new(300.0, 1000.0, 0.0),
-            angle_z: 0.0,
-            scale: glam::Vec3::new(300.0, 300.0, 300.0),
-            color: glam::Vec3::new(0.0, 1.0, 0.0),
+            rotation: 0.0,
+            scale: glam::Vec2::new(300.0, 300.0),
+            uv_min: uvs1.0,
+            uv_max: uvs1.1,
         };
-        rectangle_batch.create(instance3);
+
+        let image2 = ImageInstance {
+            position: glam::Vec3::new(800.0, 1000.0, 0.0),
+            rotation: 0.0,
+            scale: glam::Vec2::new(300.0, 300.0),
+            uv_min: uvs2.0,
+            uv_max: uvs2.1,
+        };
+        image_batch.create(image1);
+        image_batch.create(image2);
 
         Ok(Self {
             surface,
@@ -138,14 +166,14 @@ impl Renderer {
             queue,
             config,
             is_surface_configured: false,
-            texture_bind_group,
-            texture,
             window,
             camera,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
             rectangle_batch,
+            image_batch,
+            texture_manager,
         })
     }
 
@@ -233,6 +261,11 @@ impl Renderer {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
             self.rectangle_batch.draw(&self.device, &mut render_pass);
+            self.image_batch.draw(
+                &self.device,
+                &mut render_pass,
+                self.texture_manager.bind_group(),
+            );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

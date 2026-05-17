@@ -11,8 +11,9 @@ env_logger = "0.10"
 wgpu = "29.0"
 log = "0.4"
 bytemuck = { version = "1.24", features = [ "derive" ] }
-glam = "0.32"
+glam = { version = "0.32", features = ["bytemuck"] }
 slotmap = "1.1"
+guillotiere = "0.7.0"
 
 [dependencies.image]
 version = "0.24"

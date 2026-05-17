@@ -1,7 +1,6 @@
 use image::GenericImageView;
 
 pub struct Texture {
-    #[expect(dead_code)]
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -57,6 +56,46 @@ impl Texture {
             },
             texture_size,
         );
+
+        let view = texture.create_view(&wgpu::wgt::TextureViewDescriptor::default());
+        // TODO: Look at the mag and min filter modes
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+
+        Ok(Self {
+            texture,
+            view,
+            sampler,
+        })
+    }
+
+    pub fn empty(
+        device: &wgpu::Device,
+        dimensions: (u32, u32),
+        label: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        let texture_size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
 
         let view = texture.create_view(&wgpu::wgt::TextureViewDescriptor::default());
         // TODO: Look at the mag and min filter modes

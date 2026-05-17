@@ -7,6 +7,7 @@ pub struct RectangleInstance {
 
 impl RectangleInstance {
     pub fn to_raw(&self) -> RectangleInstanceRaw {
+        // TODO: Remove the use of matrices for rectangles. Can remove the RectangleInstanceRaw!
         RectangleInstanceRaw {
             model: (glam::Mat4::from_translation(self.position)
                 * glam::Mat4::from_rotation_z(self.angle_z)
