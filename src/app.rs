@@ -8,7 +8,15 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::renderer::Renderer;
+use crate::{
+    renderer::{
+        Renderer,
+        draw_manager::DrawManager,
+        image::{batch::ImageBatch, instance::ImageInstance},
+        rectangle::instance::RectangleInstance,
+    },
+    texture_bytes,
+};
 
 pub struct App {
     state: Option<Renderer>,
@@ -31,6 +39,8 @@ impl ApplicationHandler<Renderer> for App {
 
         self.state =
             Some(pollster::block_on(Renderer::new(window)).expect("Failed to create state"));
+
+        draw_elements(self.state.as_mut().expect("No renderer available"));
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: Renderer) {
@@ -73,6 +83,39 @@ impl ApplicationHandler<Renderer> for App {
             _ => {}
         }
     }
+}
+
+fn draw_elements(renderer: &mut Renderer) {
+    let rectangle1 = RectangleInstance::new(
+        glam::Vec2::new(300.0, 300.0),
+        glam::Vec2::new(300.0, 300.0),
+        0.0,
+        glam::Vec4::new(1.0, 0.0, 0.0, 0.2),
+    );
+    let rectangle2 = RectangleInstance::new(
+        glam::Vec2::new(200.0, 200.0),
+        glam::Vec2::new(300.0, 300.0),
+        0.0,
+        glam::Vec4::new(0.0, 1.0, 0.0, 0.5),
+    );
+    let house_handle = renderer.create_texture(texture_bytes!("house.png"));
+    let house_image = ImageInstance::new(
+        glam::Vec2::new(200.0, 200.0),
+        glam::Vec2::new(300.0, 300.0),
+        0.0,
+        renderer
+            .texture_manager
+            .uv(house_handle)
+            .expect("House rendered"),
+    );
+    renderer
+        .draw_manager
+        .image_batch()
+        .create(house_image, DrawManager::CONTENT_LAYER);
+    renderer
+        .draw_manager
+        .rectangle_batch()
+        .create(rectangle1, DrawManager::OVERLAY_LAYER);
 }
 
 pub fn run() -> anyhow::Result<()> {

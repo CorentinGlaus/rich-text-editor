@@ -5,7 +5,7 @@ struct CameraUniform {
 var<uniform> camera_uniform: CameraUniform;
 
 struct InstanceInput {
-    @location(2) position: vec3<f32>,
+    @location(2) position: vec2<f32>,
     @location(3) scale: vec2<f32>,
     @location(4) rotation: f32,
     @location(5) uv_min: vec2<f32>,
@@ -33,7 +33,7 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
         scaled.x * sin_rotation + scaled.y * cos_rotation,
         scaled.z
     );
-    let world_pos = instance.position + rotated;
+    let world_pos = vec3(instance.position, 0.0) + rotated;
 
     var out: VertexOutput;
     out.tex_coords = mix(instance.uv_min, instance.uv_max, vertex.tex_coords);

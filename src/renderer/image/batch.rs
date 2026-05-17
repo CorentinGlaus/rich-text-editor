@@ -1,9 +1,14 @@
+use std::{collections::HashMap, ops::Range};
+
 use slotmap::SlotMap;
 use wgpu::{SurfaceConfiguration, util::DeviceExt};
 
-use crate::renderer::image::{
-    instance::ImageInstance,
-    vertex::{IMAGE_INDICES, IMAGE_VERTICES, ImageVertex},
+use crate::renderer::{
+    draw_manager::LayerId,
+    image::{
+        instance::ImageInstance,
+        vertex::{IMAGE_INDICES, IMAGE_VERTICES, ImageVertex},
+    },
 };
 
 slotmap::new_key_type! {
@@ -11,18 +16,25 @@ slotmap::new_key_type! {
 }
 
 pub struct ImageBatch {
-    slots: SlotMap<ImageHandle, usize>,
-    instances: Vec<ImageInstance>,
-    reverse: Vec<ImageHandle>,
+    render_pipeline: wgpu::RenderPipeline,
+    shader: wgpu::ShaderModule,
+
+    slots: SlotMap<ImageHandle, (LayerId, usize)>,
+    reverse: HashMap<LayerId, Vec<ImageHandle>>,
+
+    vertex_buffer: wgpu::Buffer,
+
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+
+    instances: HashMap<LayerId, Vec<ImageInstance>>,
     instance_buffer: wgpu::Buffer,
     instance_buffer_capacity: usize,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    #[expect(unused)]
-    shader: wgpu::ShaderModule,
-    num_indices: u32,
+    instance_count: usize,
+
+    layer_ranges: HashMap<LayerId, Range<u32>>,
+
     dirty: bool,
-    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl ImageBatch {
@@ -36,7 +48,9 @@ impl ImageBatch {
         let render_pipeline =
             Self::new_render_pipeline(device, &shader, surface_config, bind_groups);
 
-        let instances: Vec<ImageInstance> = vec![];
+        let instances: HashMap<LayerId, Vec<ImageInstance>> = HashMap::new();
+        let reverse: HashMap<LayerId, Vec<ImageHandle>> = HashMap::new();
+        let layer_ranges: HashMap<LayerId, Range<u32>> = HashMap::new();
 
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Image Instance Buffer"),
@@ -63,7 +77,7 @@ impl ImageBatch {
         ImageBatch {
             slots: SlotMap::with_key(),
             instances,
-            reverse: vec![],
+            reverse,
             instance_buffer,
             instance_buffer_capacity: Self::INITAL_INSTANCE_BUFFER_CAPACITY,
             dirty: false,
@@ -72,83 +86,112 @@ impl ImageBatch {
             shader,
             render_pipeline,
             num_indices,
+            instance_count: 0,
+            layer_ranges,
         }
     }
 
     const INITAL_INSTANCE_BUFFER_CAPACITY: usize = 50;
 
-    pub fn create(&mut self, inst: ImageInstance) -> ImageHandle {
-        // TODO: Order the instances so that the instances are drawn back to fron
-        let dense_idx = self.instances.len();
-        self.instances.push(inst);
-        let key = self.slots.insert(dense_idx);
-        self.reverse.push(key);
+    pub fn create(&mut self, instance: ImageInstance, layer: LayerId) -> ImageHandle {
+        let layer_instances = self.instances.entry(layer).or_default();
+        let layer_reverse = self.reverse.entry(layer).or_default();
+
+        let dense_idx = layer_instances.len();
+        layer_instances.push(instance);
+        let key = self.slots.insert((layer, dense_idx));
+        layer_reverse.push(key);
+
+        self.instance_count += 1;
         self.dirty = true;
+
         key
     }
 
-    pub fn modify(&mut self, h: ImageHandle, f: impl FnOnce(&mut ImageInstance)) {
-        if let Some(&d) = self.slots.get(h) {
-            f(&mut self.instances[d]);
+    pub fn modify(&mut self, handle: ImageHandle, function: impl FnOnce(&mut ImageInstance)) {
+        if let Some(&instance_key) = self.slots.get(handle) {
+            let layer_instances = self.instances.entry(instance_key.0).or_default();
+
+            function(&mut layer_instances[instance_key.1]);
             self.dirty = true;
         }
     }
 
     pub fn remove(&mut self, handle: ImageHandle) {
-        let Some(idx) = self.slots.remove(handle) else {
+        let Some(instance_key) = self.slots.remove(handle) else {
             return;
         };
-        let last = self.instances.len() - 1;
-        self.instances.swap_remove(idx);
-        self.reverse.swap_remove(idx);
-        if idx != last {
-            let moved_key = self.reverse[idx];
-            self.slots[moved_key] = idx;
+        let layer_instances = self.instances.entry(instance_key.0).or_default();
+        let layer_reverse = self.reverse.entry(instance_key.0).or_default();
+
+        let last = layer_instances.len() - 1;
+        layer_instances.swap_remove(instance_key.1);
+        layer_reverse.swap_remove(instance_key.1);
+        if instance_key.1 != last {
+            let moved_key = layer_reverse[instance_key.1];
+            self.slots[moved_key] = instance_key;
         }
+
+        self.instance_count -= 1;
         self.dirty = true;
     }
 
-    fn update_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        if self.dirty {
-            if self.instances.len() > self.instance_buffer_capacity {
-                self.instance_buffer_capacity *= 2;
-                self.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Rectangle Instance Buffer"),
-                    size: (self.instance_buffer_capacity * std::mem::size_of::<ImageInstance>())
-                        as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
-            let mut sorted_instances = self.instances.clone();
-            sorted_instances.sort_by(|a, b| a.position.z.total_cmp(&b.position.z));
-            queue.write_buffer(
-                &self.instance_buffer,
-                0,
-                bytemuck::cast_slice(&sorted_instances),
-            );
-            self.dirty = false;
-        }
-    }
-
-    pub fn draw(
+    pub fn update_buffer(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        layers: &Vec<LayerId>,
+    ) {
+        if !self.dirty {
+            return;
+        }
+        if self.instance_count > self.instance_buffer_capacity {
+            self.instance_buffer_capacity *= 2;
+            self.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Image Instance Buffer"),
+                size: (self.instance_buffer_capacity * std::mem::size_of::<ImageInstance>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+
+        let mut packed = Vec::with_capacity(self.instance_count);
+        for layer in layers {
+            if let Some(layer_instances) = self.instances.get(&layer) {
+                if layer_instances.is_empty() {
+                    continue;
+                }
+                let start = packed.len() as u32;
+                packed.extend_from_slice(layer_instances);
+                self.layer_ranges
+                    .insert(layer.clone(), start..packed.len() as u32);
+            }
+        }
+
+        queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&packed));
+        self.dirty = false;
+    }
+
+    pub fn draw_layer(
+        &mut self,
         render_pass: &mut wgpu::RenderPass,
         texture_bind_group: &wgpu::BindGroup,
+        layer: &LayerId,
     ) {
-        if self.instances.is_empty() {
+        let Some(range) = self.layer_ranges.get(&layer) else {
+            return;
+        };
+
+        if range.is_empty() {
             return;
         }
 
-        self.update_buffer(device, queue);
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(1, texture_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as u32);
+        render_pass.draw_indexed(0..self.num_indices, 0, range.clone());
     }
 }
 

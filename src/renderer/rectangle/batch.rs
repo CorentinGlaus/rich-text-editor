@@ -1,9 +1,14 @@
+use std::{collections::HashMap, ops::Range};
+
 use slotmap::SlotMap;
 use wgpu::{BindGroupLayout, SurfaceConfiguration, util::DeviceExt};
 
-use crate::renderer::rectangle::{
-    instance::RectangleInstance,
-    vertex::{RECTANGLE_INDICES, RECTANGLE_VERTICES, RectangleVertex},
+use crate::renderer::{
+    draw_manager::LayerId,
+    rectangle::{
+        instance::RectangleInstance,
+        vertex::{RECTANGLE_INDICES, RECTANGLE_VERTICES, RectangleVertex},
+    },
 };
 
 slotmap::new_key_type! {
@@ -11,18 +16,25 @@ slotmap::new_key_type! {
 }
 
 pub struct RectangleBatch {
-    slots: SlotMap<RectangleHandle, usize>,
-    instances: Vec<RectangleInstance>,
-    reverse: Vec<RectangleHandle>,
+    render_pipeline: wgpu::RenderPipeline,
+    shader: wgpu::ShaderModule,
+
+    slots: SlotMap<RectangleHandle, (LayerId, usize)>,
+    reverse: HashMap<LayerId, Vec<RectangleHandle>>,
+
+    vertex_buffer: wgpu::Buffer,
+
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+
+    instances: HashMap<LayerId, Vec<RectangleInstance>>,
     instance_buffer: wgpu::Buffer,
     instance_buffer_capacity: usize,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    #[expect(unused)]
-    shader: wgpu::ShaderModule,
-    num_indices: u32,
+    instance_count: usize,
+
+    layer_ranges: HashMap<LayerId, Range<u32>>,
+
     dirty: bool,
-    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl RectangleBatch {
@@ -36,7 +48,9 @@ impl RectangleBatch {
         let render_pipeline =
             Self::new_render_pipeline(device, &shader, surface_config, camera_bind_group_layout);
 
-        let instances: Vec<RectangleInstance> = vec![];
+        let instances: HashMap<LayerId, Vec<RectangleInstance>> = HashMap::new();
+        let reverse: HashMap<LayerId, Vec<RectangleHandle>> = HashMap::new();
+        let layer_ranges: HashMap<LayerId, Range<u32>> = HashMap::new();
 
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Rectangle Instance Buffer"),
@@ -65,87 +79,118 @@ impl RectangleBatch {
             instances,
             instance_buffer,
             instance_buffer_capacity: Self::INITAL_INSTANCE_BUFFER_CAPACITY,
-            reverse: vec![],
+            reverse,
             dirty: false,
             vertex_buffer,
             index_buffer,
             shader,
             render_pipeline,
             num_indices,
+            instance_count: 0,
+            layer_ranges,
         }
     }
 
     const INITAL_INSTANCE_BUFFER_CAPACITY: usize = 50;
 
-    pub fn create(&mut self, inst: RectangleInstance) -> RectangleHandle {
-        let dense_idx = self.instances.len();
-        self.instances.push(inst);
-        let key = self.slots.insert(dense_idx);
-        self.reverse.push(key);
+    pub fn create(&mut self, instance: RectangleInstance, layer: LayerId) -> RectangleHandle {
+        let layer_instances = self.instances.entry(layer).or_default();
+        let layer_reverse = self.reverse.entry(layer).or_default();
+
+        let dense_idx = layer_instances.len();
+        layer_instances.push(instance);
+        let key = self.slots.insert((layer, dense_idx));
+        layer_reverse.push(key);
+
+        self.instance_count += 1;
         self.dirty = true;
+
         key
     }
 
-    pub fn modify(&mut self, h: RectangleHandle, f: impl FnOnce(&mut RectangleInstance)) {
-        if let Some(&d) = self.slots.get(h) {
-            f(&mut self.instances[d]);
+    pub fn modify(
+        &mut self,
+        handle: RectangleHandle,
+        function: impl FnOnce(&mut RectangleInstance),
+    ) {
+        if let Some(&instance_key) = self.slots.get(handle) {
+            let layer_instances = self.instances.entry(instance_key.0).or_default();
+
+            function(&mut layer_instances[instance_key.1]);
             self.dirty = true;
         }
     }
 
     pub fn remove(&mut self, handle: RectangleHandle) {
-        let Some(idx) = self.slots.remove(handle) else {
+        let Some(instance_key) = self.slots.remove(handle) else {
             return;
         };
-        let last = self.instances.len() - 1;
-        self.instances.swap_remove(idx);
-        self.reverse.swap_remove(idx);
-        if idx != last {
-            let moved_key = self.reverse[idx];
-            self.slots[moved_key] = idx;
+        let layer_instances = self.instances.entry(instance_key.0).or_default();
+        let layer_reverse = self.reverse.entry(instance_key.0).or_default();
+
+        let last = layer_instances.len() - 1;
+        layer_instances.swap_remove(instance_key.1);
+        layer_reverse.swap_remove(instance_key.1);
+        if instance_key.1 != last {
+            let moved_key = layer_reverse[instance_key.1];
+            self.slots[moved_key] = instance_key;
         }
+
+        self.instance_count -= 1;
         self.dirty = true;
     }
 
-    fn update_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        if self.dirty {
-            if self.instances.len() > self.instance_buffer_capacity {
-                self.instance_buffer_capacity *= 2;
-                self.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Rectangle Instance Buffer"),
-                    size: (self.instance_buffer_capacity * std::mem::size_of::<RectangleInstance>())
-                        as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
-            let mut sorted_instances = self.instances.clone();
-            sorted_instances.sort_by(|a, b| a.position.z.total_cmp(&b.position.z));
-            queue.write_buffer(
-                &self.instance_buffer,
-                0,
-                bytemuck::cast_slice(&sorted_instances),
-            );
-            self.dirty = false;
-        }
-    }
-
-    pub fn draw(
+    pub fn update_buffer(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        render_pass: &mut wgpu::RenderPass,
+        layers: &Vec<LayerId>,
     ) {
-        if self.instances.is_empty() {
+        if !self.dirty {
+            return;
+        }
+        if self.instance_count > self.instance_buffer_capacity {
+            self.instance_buffer_capacity *= 2;
+            self.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Rectangle Instance Buffer"),
+                size: (self.instance_buffer_capacity * std::mem::size_of::<RectangleInstance>())
+                    as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+
+        let mut packed = Vec::with_capacity(self.instance_count);
+        for layer in layers {
+            if let Some(layer_instances) = self.instances.get(&layer) {
+                if layer_instances.is_empty() {
+                    continue;
+                }
+                let start = packed.len() as u32;
+                packed.extend_from_slice(layer_instances);
+                self.layer_ranges
+                    .insert(layer.clone(), start..packed.len() as u32);
+            }
+        }
+
+        queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&packed));
+        self.dirty = false;
+    }
+
+    pub fn draw_layer(&mut self, render_pass: &mut wgpu::RenderPass, layer: &LayerId) {
+        let Some(range) = self.layer_ranges.get(&layer) else {
+            return;
+        };
+
+        if range.is_empty() {
             return;
         }
 
-        self.update_buffer(device, queue);
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as u32);
+        render_pass.draw_indexed(0..self.num_indices, 0, range.clone());
     }
 }
 

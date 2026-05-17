@@ -5,10 +5,10 @@ struct CameraUniform {
 var<uniform> camera_uniform: CameraUniform;
 
 struct InstanceInput {
-    @location(1) position: vec3<f32>,
+    @location(1) position: vec2<f32>,
     @location(2) scale: vec2<f32>,
     @location(3) rotation: f32,
-    @location(4) _padding: vec2<f32>,
+    @location(4) _padding: vec3<f32>,
     @location(5) color: vec4<f32>,
 };
 
@@ -26,13 +26,14 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     let cos_rotation = cos(instance.rotation);
     let sin_rotation = sin(instance.rotation);
 
+    // TODO: Remove the Vec3 for the calculations, only add at the end.
     let scaled = vec3(vertex.position, 0.0) * vec3<f32>(instance.scale, 1.0);
     let rotated = vec3<f32>(
         scaled.x * cos_rotation - scaled.y * sin_rotation,
         scaled.x * sin_rotation + scaled.y * cos_rotation,
         scaled.z
     );
-    let world_pos = instance.position + rotated;
+    let world_pos = vec3(instance.position, 0.0) + rotated;
 
     var out: VertexOutput;
     out.color = instance.color;

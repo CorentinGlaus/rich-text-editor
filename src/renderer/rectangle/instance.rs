@@ -3,29 +3,29 @@ use std::mem;
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RectangleInstance {
-    pub position: glam::Vec3,
+    pub position: glam::Vec2,
     pub scale: glam::Vec2,
     pub rotation: f32,
-    _padding: [f32; 2],
+    _padding: [f32; 3],
     pub color: glam::Vec4,
 }
 
 impl RectangleInstance {
-    pub fn new(position: glam::Vec3, scale: glam::Vec2, rotation: f32, color: glam::Vec4) -> Self {
+    pub fn new(position: glam::Vec2, scale: glam::Vec2, rotation: f32, color: glam::Vec4) -> Self {
         Self {
             position,
             scale,
             rotation,
-            _padding: [0.0, 0.0],
+            _padding: [0.0, 0.0, 0.0],
             color,
         }
     }
 
     const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
-        1 => Float32x3,
+        1 => Float32x2,
         2 => Float32x2,
         3 => Float32,
-        4 => Float32x2,
+        4 => Float32x3,
         5 => Float32x4,
     ];
 

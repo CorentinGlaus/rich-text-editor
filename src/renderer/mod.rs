@@ -1,3 +1,4 @@
+pub mod draw_manager;
 pub mod image;
 pub mod rectangle;
 pub mod texture_manager;
@@ -13,11 +14,11 @@ use crate::{
         create_camera_buffer,
     },
     renderer::{
+        draw_manager::DrawManager,
         image::{batch::ImageBatch, instance::ImageInstance},
         rectangle::{batch::RectangleBatch, instance::RectangleInstance},
-        texture_manager::TextureManager,
+        texture_manager::{TextureHandle, TextureManager},
     },
-    texture_bytes,
 };
 
 pub struct Renderer {
@@ -31,9 +32,8 @@ pub struct Renderer {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    rectangle_batch: RectangleBatch,
-    image_batch: ImageBatch,
-    texture_manager: TextureManager,
+    pub draw_manager: DrawManager,
+    pub texture_manager: TextureManager,
 }
 
 impl Renderer {
@@ -98,81 +98,16 @@ impl Renderer {
         let camera_bind_group =
             create_camera_bind_group(&device, &camera_buffer, &camera_bind_group_layout);
 
-        let mut texture_manager = TextureManager::new(&device, (2048, 2048))
+        let texture_manager = TextureManager::new(&device, (2048, 2048))
             .expect("Error when creating the texture manager");
 
-        let mut rectangle_batch = RectangleBatch::new(&device, &config, &camera_bind_group_layout);
-        let mut image_batch = ImageBatch::new(
+        let draw_manager = DrawManager::new(
             &device,
             &config,
-            &[
-                Some(&camera_bind_group_layout),
-                Some(texture_manager.bind_group_layout()),
-            ],
-        );
-
-        let instance1 = RectangleInstance::new(
-            glam::Vec3::new(300.0, 300.0, 0.0),
-            glam::Vec2::new(300.0, 300.0),
-            0.0,
-            glam::Vec4::new(1.0, 0.0, 0.0, 1.0),
-        );
-        let instance2 = RectangleInstance::new(
-            glam::Vec3::new(700.0, 300.0, 0.0),
-            glam::Vec2::new(300.0, 300.0),
-            0.0,
-            glam::Vec4::new(1.0, 0.0, 0.0, 0.5),
-        );
-        let instance3 = RectangleInstance::new(
-            glam::Vec3::new(600.0, 200.0, 0.0),
-            glam::Vec2::new(300.0, 300.0),
-            0.0,
-            glam::Vec4::new(0.0, 1.0, 0.0, 0.5),
-        );
-        let handle1 = rectangle_batch.create(instance1);
-        let handle2 = rectangle_batch.create(instance2);
-        rectangle_batch.create(instance3);
-        rectangle_batch.modify(handle2, |instance| {
-            instance.position += glam::Vec3::new(0.0, 100.0, 0.0);
-        });
-        rectangle_batch.remove(handle1);
-
-        let texture_handle1 = texture_manager
-            .add(&device, &queue, texture_bytes!("happy-tree.png"))
-            .expect("Error when creating image");
-        let texture_handle2 = texture_manager
-            .add(&device, &queue, texture_bytes!("house.png"))
-            .expect("Error when creating image");
-        let uvs1 = texture_manager
-            .uv(texture_handle1)
-            .expect("Error when getting UV");
-        let uvs2 = texture_manager
-            .uv(texture_handle2)
-            .expect("Error when getting UV");
-        let image1 = ImageInstance {
-            position: glam::Vec3::new(300.0, 1000.0, 0.0),
-            rotation: 0.0,
-            scale: glam::Vec2::new(300.0, 300.0),
-            uv_min: uvs1.0,
-            uv_max: uvs1.1,
-        };
-
-        let image2 = ImageInstance {
-            position: glam::Vec3::new(800.0, 1000.0, 0.0),
-            rotation: 0.0,
-            scale: glam::Vec2::new(300.0, 300.0),
-            uv_min: uvs2.0,
-            uv_max: uvs2.1,
-        };
-        image_batch.create(image1);
-        image_batch.create(image2);
-        let rectangle3 = RectangleInstance::new(
-            glam::Vec3::new(700.0, 900.0, 0.0),
-            glam::Vec2::new(300.0, 300.0),
-            0.0,
-            glam::Vec4::new(0.0, 1.0, 0.0, 1.0),
-        );
-        rectangle_batch.create(rectangle3);
+            &camera_bind_group_layout,
+            &texture_manager,
+        )
+        .expect("Error when creating the draw manager");
 
         Ok(Self {
             surface,
@@ -185,8 +120,7 @@ impl Renderer {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            rectangle_batch,
-            image_batch,
+            draw_manager,
             texture_manager,
         })
     }
@@ -274,9 +208,7 @@ impl Renderer {
 
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-            self.rectangle_batch
-                .draw(&self.device, &self.queue, &mut render_pass);
-            self.image_batch.draw(
+            self.draw_manager.draw(
                 &self.device,
                 &self.queue,
                 &mut render_pass,
@@ -296,6 +228,12 @@ impl Renderer {
             (KeyCode::Escape, true) => event_loop.exit(),
             _ => {}
         }
+    }
+
+    pub fn create_texture(&mut self, texture_bytes: &[u8]) -> TextureHandle {
+        self.texture_manager
+            .add(&self.device, &self.queue, texture_bytes)
+            .expect("Error when creating image")
     }
 
     pub fn update(&mut self) {}
