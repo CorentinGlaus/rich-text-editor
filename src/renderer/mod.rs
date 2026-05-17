@@ -111,20 +111,27 @@ impl Renderer {
             ],
         );
 
-        let instance1 = RectangleInstance {
-            position: glam::Vec3::new(300.0, 300.0, 0.0),
-            angle_z: 0.0,
-            scale: glam::Vec3::new(300.0, 300.0, 300.0),
-            color: glam::Vec3::new(1.0, 0.0, 0.0),
-        };
-        let instance2 = RectangleInstance {
-            position: glam::Vec3::new(700.0, 300.0, 0.0),
-            angle_z: 0.0,
-            scale: glam::Vec3::new(300.0, 300.0, 300.0),
-            color: glam::Vec3::new(1.0, 0.0, 0.0),
-        };
+        let instance1 = RectangleInstance::new(
+            glam::Vec3::new(300.0, 300.0, 0.0),
+            glam::Vec2::new(300.0, 300.0),
+            0.0,
+            glam::Vec4::new(1.0, 0.0, 0.0, 1.0),
+        );
+        let instance2 = RectangleInstance::new(
+            glam::Vec3::new(700.0, 300.0, 0.0),
+            glam::Vec2::new(300.0, 300.0),
+            0.0,
+            glam::Vec4::new(1.0, 0.0, 0.0, 0.5),
+        );
+        let instance3 = RectangleInstance::new(
+            glam::Vec3::new(600.0, 200.0, 0.0),
+            glam::Vec2::new(300.0, 300.0),
+            0.0,
+            glam::Vec4::new(0.0, 1.0, 0.0, 0.5),
+        );
         let handle1 = rectangle_batch.create(instance1);
         let handle2 = rectangle_batch.create(instance2);
+        rectangle_batch.create(instance3);
         rectangle_batch.modify(handle2, |instance| {
             instance.position += glam::Vec3::new(0.0, 100.0, 0.0);
         });
@@ -159,6 +166,13 @@ impl Renderer {
         };
         image_batch.create(image1);
         image_batch.create(image2);
+        let rectangle3 = RectangleInstance::new(
+            glam::Vec3::new(700.0, 900.0, 0.0),
+            glam::Vec2::new(300.0, 300.0),
+            0.0,
+            glam::Vec4::new(0.0, 1.0, 0.0, 1.0),
+        );
+        rectangle_batch.create(rectangle3);
 
         Ok(Self {
             surface,
@@ -260,9 +274,11 @@ impl Renderer {
 
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-            self.rectangle_batch.draw(&self.device, &mut render_pass);
+            self.rectangle_batch
+                .draw(&self.device, &self.queue, &mut render_pass);
             self.image_batch.draw(
                 &self.device,
+                &self.queue,
                 &mut render_pass,
                 self.texture_manager.bind_group(),
             );

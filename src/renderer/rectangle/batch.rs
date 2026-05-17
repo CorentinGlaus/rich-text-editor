@@ -2,7 +2,7 @@ use slotmap::SlotMap;
 use wgpu::{BindGroupLayout, SurfaceConfiguration, util::DeviceExt};
 
 use crate::renderer::rectangle::{
-    instance::{RectangleInstance, RectangleInstanceRaw},
+    instance::RectangleInstance,
     vertex::{RECTANGLE_INDICES, RECTANGLE_VERTICES, RectangleVertex},
 };
 
@@ -15,6 +15,7 @@ pub struct RectangleBatch {
     instances: Vec<RectangleInstance>,
     reverse: Vec<RectangleHandle>,
     instance_buffer: wgpu::Buffer,
+    instance_buffer_capacity: usize,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     #[expect(unused)]
@@ -37,14 +38,12 @@ impl RectangleBatch {
 
         let instances: Vec<RectangleInstance> = vec![];
 
-        let instance_data = instances
-            .iter()
-            .map(RectangleInstance::to_raw)
-            .collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Rectangle Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX,
+            size: Self::INITAL_INSTANCE_BUFFER_CAPACITY as u64
+                * std::mem::size_of::<RectangleInstance>() as u64,
+            mapped_at_creation: false,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -64,8 +63,9 @@ impl RectangleBatch {
         RectangleBatch {
             slots: SlotMap::with_key(),
             instances,
-            reverse: vec![],
             instance_buffer,
+            instance_buffer_capacity: Self::INITAL_INSTANCE_BUFFER_CAPACITY,
+            reverse: vec![],
             dirty: false,
             vertex_buffer,
             index_buffer,
@@ -74,6 +74,8 @@ impl RectangleBatch {
             num_indices,
         }
     }
+
+    const INITAL_INSTANCE_BUFFER_CAPACITY: usize = 50;
 
     pub fn create(&mut self, inst: RectangleInstance) -> RectangleHandle {
         let dense_idx = self.instances.len();
@@ -105,28 +107,40 @@ impl RectangleBatch {
         self.dirty = true;
     }
 
-    fn update_buffer(&mut self, device: &wgpu::Device) {
+    fn update_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.dirty {
-            let instance_data = self
-                .instances
-                .iter()
-                .map(RectangleInstance::to_raw)
-                .collect::<Vec<_>>();
-            self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Rectangle Instance Buffer"),
-                contents: bytemuck::cast_slice(&instance_data),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+            if self.instances.len() > self.instance_buffer_capacity {
+                self.instance_buffer_capacity *= 2;
+                self.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Rectangle Instance Buffer"),
+                    size: (self.instance_buffer_capacity * std::mem::size_of::<RectangleInstance>())
+                        as u64,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+            }
+            let mut sorted_instances = self.instances.clone();
+            sorted_instances.sort_by(|a, b| a.position.z.total_cmp(&b.position.z));
+            queue.write_buffer(
+                &self.instance_buffer,
+                0,
+                bytemuck::cast_slice(&sorted_instances),
+            );
             self.dirty = false;
         }
     }
 
-    pub fn draw(&mut self, device: &wgpu::Device, render_pass: &mut wgpu::RenderPass) {
+    pub fn draw(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        render_pass: &mut wgpu::RenderPass,
+    ) {
         if self.instances.is_empty() {
             return;
         }
 
-        self.update_buffer(device);
+        self.update_buffer(device, queue);
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
@@ -155,7 +169,7 @@ impl RectangleBatch {
             vertex: wgpu::VertexState {
                 module: shader,
                 entry_point: Some("vs_main"),
-                buffers: &[RectangleVertex::desc(), RectangleInstanceRaw::desc()],
+                buffers: &[RectangleVertex::desc(), RectangleInstance::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -163,7 +177,7 @@ impl RectangleBatch {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),

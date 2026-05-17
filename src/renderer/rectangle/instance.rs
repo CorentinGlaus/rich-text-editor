@@ -1,63 +1,39 @@
-pub struct RectangleInstance {
-    pub position: glam::Vec3,
-    pub angle_z: f32,
-    pub scale: glam::Vec3,
-    pub color: glam::Vec3,
-}
-
-impl RectangleInstance {
-    pub fn to_raw(&self) -> RectangleInstanceRaw {
-        // TODO: Remove the use of matrices for rectangles. Can remove the RectangleInstanceRaw!
-        RectangleInstanceRaw {
-            model: (glam::Mat4::from_translation(self.position)
-                * glam::Mat4::from_rotation_z(self.angle_z)
-                * glam::Mat4::from_scale(self.scale))
-            .to_cols_array_2d(),
-            color: self.color.to_array(),
-        }
-    }
-}
+use std::mem;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct RectangleInstanceRaw {
-    model: [[f32; 4]; 4],
-    color: [f32; 3],
+pub struct RectangleInstance {
+    pub position: glam::Vec3,
+    pub scale: glam::Vec2,
+    pub rotation: f32,
+    _padding: [f32; 2],
+    pub color: glam::Vec4,
 }
 
-impl RectangleInstanceRaw {
+impl RectangleInstance {
+    pub fn new(position: glam::Vec3, scale: glam::Vec2, rotation: f32, color: glam::Vec4) -> Self {
+        Self {
+            position,
+            scale,
+            rotation,
+            _padding: [0.0, 0.0],
+            color,
+        }
+    }
+
+    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+        1 => Float32x3,
+        2 => Float32x2,
+        3 => Float32,
+        4 => Float32x2,
+        5 => Float32x4,
+    ];
+
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
         wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<RectangleInstanceRaw>() as wgpu::BufferAddress,
+            array_stride: mem::size_of::<RectangleInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 7,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
-                    shader_location: 8,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
-                    shader_location: 9,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
+            attributes: &Self::ATTRIBS,
         }
     }
 }

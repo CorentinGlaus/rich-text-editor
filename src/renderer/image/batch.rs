@@ -15,6 +15,7 @@ pub struct ImageBatch {
     instances: Vec<ImageInstance>,
     reverse: Vec<ImageHandle>,
     instance_buffer: wgpu::Buffer,
+    instance_buffer_capacity: usize,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     #[expect(unused)]
@@ -37,10 +38,12 @@ impl ImageBatch {
 
         let instances: Vec<ImageInstance> = vec![];
 
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Image Instance Buffer"),
-            contents: bytemuck::cast_slice(&instances),
-            usage: wgpu::BufferUsages::VERTEX,
+            size: Self::INITAL_INSTANCE_BUFFER_CAPACITY as u64
+                * std::mem::size_of::<ImageInstance>() as u64,
+            mapped_at_creation: false,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -62,6 +65,7 @@ impl ImageBatch {
             instances,
             reverse: vec![],
             instance_buffer,
+            instance_buffer_capacity: Self::INITAL_INSTANCE_BUFFER_CAPACITY,
             dirty: false,
             vertex_buffer,
             index_buffer,
@@ -70,6 +74,8 @@ impl ImageBatch {
             num_indices,
         }
     }
+
+    const INITAL_INSTANCE_BUFFER_CAPACITY: usize = 50;
 
     pub fn create(&mut self, inst: ImageInstance) -> ImageHandle {
         // TODO: Order the instances so that the instances are drawn back to fron
@@ -102,13 +108,25 @@ impl ImageBatch {
         self.dirty = true;
     }
 
-    fn update_buffer(&mut self, device: &wgpu::Device) {
+    fn update_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.dirty {
-            self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Image Instance Buffer"),
-                contents: bytemuck::cast_slice(&self.instances),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+            if self.instances.len() > self.instance_buffer_capacity {
+                self.instance_buffer_capacity *= 2;
+                self.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Rectangle Instance Buffer"),
+                    size: (self.instance_buffer_capacity * std::mem::size_of::<ImageInstance>())
+                        as u64,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+            }
+            let mut sorted_instances = self.instances.clone();
+            sorted_instances.sort_by(|a, b| a.position.z.total_cmp(&b.position.z));
+            queue.write_buffer(
+                &self.instance_buffer,
+                0,
+                bytemuck::cast_slice(&sorted_instances),
+            );
             self.dirty = false;
         }
     }
@@ -116,6 +134,7 @@ impl ImageBatch {
     pub fn draw(
         &mut self,
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         render_pass: &mut wgpu::RenderPass,
         texture_bind_group: &wgpu::BindGroup,
     ) {
@@ -123,7 +142,7 @@ impl ImageBatch {
             return;
         }
 
-        self.update_buffer(device);
+        self.update_buffer(device, queue);
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(1, texture_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
