@@ -22,19 +22,19 @@ impl GlyphVertex {
 
 pub const GLYPH_VERTICES: &[GlyphVertex] = &[
     GlyphVertex {
-        position: glam::Vec2::new(-0.5, 0.5),
+        position: glam::Vec2::new(0.0, 1.0),
         tex_coords: glam::Vec2::new(0.0, 1.0),
     }, // top-left
     GlyphVertex {
-        position: glam::Vec2::new(-0.5, -0.5),
+        position: glam::Vec2::new(0.0, 0.0),
         tex_coords: glam::Vec2::new(0.0, 0.0),
     }, // bottom-left
     GlyphVertex {
-        position: glam::Vec2::new(0.5, -0.5),
+        position: glam::Vec2::new(1.0, 0.0),
         tex_coords: glam::Vec2::new(1.0, 0.0),
     }, // bottom-right
     GlyphVertex {
-        position: glam::Vec2::new(0.5, 0.5),
+        position: glam::Vec2::new(1.0, 1.0),
         tex_coords: glam::Vec2::new(1.0, 1.0),
     }, // top-right
 ];
