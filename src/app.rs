@@ -4,26 +4,29 @@ use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
-    keyboard::PhysicalKey,
+    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
 };
 
 use crate::{
-    get_image_bytes,
     renderer::{
-        Renderer, draw_manager::DrawManager, image::instance::ImageInstance,
-        rectangle::instance::RectangleInstance, split::RendererSplit,
+        Renderer, draw_manager::DrawManager, rectangle::instance::RectangleInstance,
+        split::RendererSplit,
     },
-    texture_bytes,
+    theme::Theme,
 };
 
 pub struct App {
     state: Option<Renderer>,
+    theme: Theme,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self { state: None }
+        Self {
+            state: None,
+            theme: Self::create_theme(),
+        }
     }
 }
 
@@ -39,7 +42,7 @@ impl ApplicationHandler<Renderer> for App {
         self.state =
             Some(pollster::block_on(Renderer::new(window)).expect("Failed to create state"));
 
-        draw_elements(self.state.as_mut().expect("No renderer available"));
+        self.draw_elements();
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: Renderer) {
@@ -78,50 +81,68 @@ impl ApplicationHandler<Renderer> for App {
                         ..
                     },
                 ..
-            } => state.handle_key(event_loop, &code, key_state.is_pressed()),
+            } => self.handle_key(event_loop, &code, key_state.is_pressed()),
             _ => {}
         }
     }
 }
 
-fn draw_elements(renderer: &mut Renderer) {
-    let RendererSplit {
-        mut painter,
-        textures,
-    } = renderer.split();
+impl App {
+    pub fn handle_key(&self, event_loop: &ActiveEventLoop, code: &KeyCode, is_pressed: bool) {
+        #[expect(clippy::single_match)]
+        match (code, is_pressed) {
+            (KeyCode::Escape, true) => event_loop.exit(),
+            _ => {}
+        }
+    }
 
-    let rectangle1 = RectangleInstance::new(
-        glam::Vec2::new(300.0, 300.0),
-        glam::Vec2::new(300.0, 300.0),
-        0.0,
-        glam::Vec4::new(1.0, 0.0, 0.0, 0.2),
-    );
-    let rectangle2 = RectangleInstance::new(
-        glam::Vec2::new(200.0, 200.0),
-        glam::Vec2::new(300.0, 300.0),
-        0.0,
-        glam::Vec4::new(0.0, 1.0, 0.0, 0.5),
-    );
-    // let (rgba, dimensions) = get_image_bytes!(texture_bytes!("house.png"));
-    // let house_handle = textures
-    //     .add(&rgba, dimensions, 4)
-    //     .expect("Error when creating house image");
-    // let house_image = ImageInstance::new(
-    //     glam::Vec2::new(200.0, 200.0),
-    //     glam::Vec2::new(300.0, 300.0),
-    //     0.0,
-    //     textures.uv(house_handle).expect("House rendered"),
-    // );
-    // painter.create_image(house_image, DrawManager::CONTENT_LAYER);
-    // painter.create_rect(rectangle1, DrawManager::OVERLAY_LAYER);
-    let text = painter.create_text(
-        "Hello, World!",
-        glam::Vec2::new(200.0, 200.0),
-        (Some(600.0), None),
-        DrawManager::CONTENT_LAYER,
-    );
+    fn create_theme() -> Theme {
+        Theme {
+            background_color: glam::Vec4::new(1.0, 1.0, 1.0, 1.0),
+            text_color: glam::Vec4::new(0.0, 0.0, 0.0, 1.0),
+        }
+    }
 
-    println!("Text: {:?}", text);
+    fn draw_elements(&mut self) {
+        let Some(ref mut renderer) = self.state else {
+            return;
+        };
+        let RendererSplit { mut painter, .. } = renderer.split();
+
+        let rectangle1 = RectangleInstance::new(
+            glam::Vec2::new(300.0, 300.0),
+            glam::Vec2::new(300.0, 300.0),
+            0.0,
+            glam::Vec4::new(1.0, 0.0, 0.0, 0.2),
+        );
+        let rectangle2 = RectangleInstance::new(
+            glam::Vec2::new(200.0, 200.0),
+            glam::Vec2::new(300.0, 300.0),
+            0.0,
+            glam::Vec4::new(0.0, 1.0, 0.0, 0.5),
+        );
+        // let (rgba, dimensions) = get_image_bytes!(texture_bytes!("house.png"));
+        // let house_handle = textures
+        //     .add(&rgba, dimensions, 4)
+        //     .expect("Error when creating house image");
+        // let house_image = ImageInstance::new(
+        //     glam::Vec2::new(200.0, 200.0),
+        //     glam::Vec2::new(300.0, 300.0),
+        //     0.0,
+        //     textures.uv(house_handle).expect("House rendered"),
+        // );
+        // painter.create_image(house_image, DrawManager::CONTENT_LAYER);
+        // painter.create_rect(rectangle1, DrawManager::OVERLAY_LAYER);
+        let text = painter.create_text(
+            "Hello, World!",
+            glam::Vec2::new(200.0, 200.0),
+            (Some(600.0), None),
+            DrawManager::CONTENT_LAYER,
+            self.theme.text_color,
+        );
+
+        println!("Text: {:?}", text);
+    }
 }
 
 pub fn run() -> anyhow::Result<()> {

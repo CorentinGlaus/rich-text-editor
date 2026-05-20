@@ -48,8 +48,9 @@ impl<'a> Painter<'a> {
         position: glam::Vec2,
         size: (Option<f32>, Option<f32>),
         layer: LayerId,
+        color: glam::Vec4,
     ) -> Text {
         self.texts
-            .create_text(text, position, size, self.glyphs, layer)
+        .create_text(text, position, size, self.glyphs, layer, color)
     }
 }

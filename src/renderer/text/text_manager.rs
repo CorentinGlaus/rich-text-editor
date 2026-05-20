@@ -53,6 +53,7 @@ impl TextManager {
         size: (Option<f32>, Option<f32>),
         batch: &mut GlyphBatch,
         layer_id: LayerId,
+        color: glam::Vec4,
     ) -> Text {
         let metrics = Metrics::new(64.0, 80.0);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
@@ -110,7 +111,7 @@ impl TextManager {
                         position.x + physical.x as f32 + cached_glyph.placement_left as f32;
                     let draw_y = position.y + physical.y as f32 - cached_glyph.placement_top as f32;
                     let glyph_instance =
-                        GlyphInstance::new(glam::vec2(draw_x, draw_y), image_size, 0.0, uvs);
+                        GlyphInstance::new(glam::vec2(draw_x, draw_y), image_size, 0.0, uvs, color);
                     let glyph_handle = batch.create(glyph_instance, layer_id);
                     glyphs.push(glyph_handle);
                 };
