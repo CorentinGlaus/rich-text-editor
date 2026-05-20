@@ -2,24 +2,24 @@ use std::mem;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ImageInstance {
+pub struct GlyphInstance {
     pub position: glam::Vec2,
-    pub scale: glam::Vec2,
+    pub size: glam::Vec2,
     pub rotation: f32,
     pub uv_min: glam::Vec2,
     pub uv_max: glam::Vec2,
 }
 
-impl ImageInstance {
+impl GlyphInstance {
     pub fn new(
         position: glam::Vec2,
-        scale: glam::Vec2,
+        size: glam::Vec2,
         rotation: f32,
         uvs: (glam::Vec2, glam::Vec2),
     ) -> Self {
         Self {
             position,
-            scale,
+            size,
             rotation,
             uv_min: uvs.0,
             uv_max: uvs.1,

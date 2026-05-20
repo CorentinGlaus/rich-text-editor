@@ -1,8 +1,15 @@
-use guillotiere::{AllocId, AtlasAllocator, size2};
+use std::sync::Arc;
+
+use anyhow::bail;
+use guillotiere::{
+    AllocId, AtlasAllocator,
+    euclid::{Box2D, rect},
+    point2, size2,
+};
 use image::GenericImageView;
 use slotmap::SlotMap;
 
-use crate::texture::Texture;
+use crate::texture::{Texture, TextureFormat};
 
 slotmap::new_key_type! {
     pub struct TextureHandle;
@@ -19,14 +26,30 @@ pub struct TextureManager {
     bind_group: wgpu::BindGroup,
     allocator: AtlasAllocator,
     regions: SlotMap<TextureHandle, AtlasRegion>,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    format: TextureFormat,
 }
 
 impl TextureManager {
-    pub fn new(device: &wgpu::Device, start_size: (u32, u32)) -> anyhow::Result<Self> {
-        let texture = Texture::empty(device, start_size, Some("Atlas Texture"))?;
+    pub fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        start_size: (u32, u32),
+        format: TextureFormat,
+    ) -> anyhow::Result<Self> {
+        let texture = Texture::empty(
+            &device,
+            start_size,
+            format.clone(),
+            wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            Some("Atlas Texture"),
+        )?;
 
-        let texture_bind_group_layout = Texture::bind_group_layout(device);
-        let texture_bind_group = texture.create_bind_group(device, &texture_bind_group_layout);
+        let texture_bind_group_layout = Texture::bind_group_layout(&device);
+        let texture_bind_group = texture.create_bind_group(&device, &texture_bind_group_layout);
 
         let atlas_allocator = AtlasAllocator::new(size2(start_size.0 as i32, start_size.1 as i32));
 
@@ -36,42 +59,42 @@ impl TextureManager {
             bind_group: texture_bind_group,
             allocator: atlas_allocator,
             regions: SlotMap::with_key(),
+            device,
+            queue,
+            format,
         })
     }
 
-    pub fn add(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        bytes: &[u8],
-    ) -> anyhow::Result<TextureHandle> {
-        // TODO: Remove the decoding from the hot path. Move it to a different thread.
-        let image = image::load_from_memory(bytes)?;
-        let diffuse_rgba = image.to_rgba8();
-        let dimensions = image.dimensions();
+    const PAD: u32 = 1;
+
+    pub fn add(&mut self, bytes: &[u8], dimensions: (u32, u32)) -> Option<TextureHandle> {
+        let (w, h) = dimensions;
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let padded = (w + 2 * Self::PAD, h + 2 * Self::PAD);
 
         let allocation = loop {
-            // TODO: Add a padding of 1 between the images in the atlas to fix sample bleeding.
             let allocation = self
                 .allocator
-                .allocate(size2(dimensions.0 as i32, dimensions.1 as i32));
+                .allocate(size2(padded.0 as i32, padded.1 as i32));
             if let Some(allocation) = allocation {
                 let rect = allocation.rectangle;
-                queue.write_texture(
+                self.queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
                         texture: &self.atlas_texture.texture,
                         mip_level: 0,
                         origin: wgpu::Origin3d {
-                            x: rect.min.x as u32,
-                            y: rect.min.y as u32,
+                            x: rect.min.x as u32 + Self::PAD,
+                            y: rect.min.y as u32 + Self::PAD,
                             z: 0,
                         },
                         aspect: wgpu::TextureAspect::All,
                     },
-                    &diffuse_rgba,
+                    bytes,
                     wgpu::TexelCopyBufferLayout {
                         offset: 0,
-                        bytes_per_row: Some(4 * dimensions.0),
+                        bytes_per_row: Some(self.atlas_texture.bytes_per_pixel() * dimensions.0),
                         rows_per_image: Some(dimensions.1),
                     },
                     wgpu::Extent3d {
@@ -83,15 +106,20 @@ impl TextureManager {
                 break allocation;
             }
             let texture_size = self.atlas_texture.texture.size();
-            self.grow_atlas(
-                device,
-                queue,
-                (texture_size.width * 2, texture_size.height * 2),
-            );
+            self.grow_atlas((texture_size.width * 2, texture_size.height * 2));
         };
 
-        Ok(self.regions.insert(AtlasRegion {
-            rect: allocation.rectangle,
+        Some(self.regions.insert(AtlasRegion {
+            rect: Box2D::new(
+                point2(
+                    allocation.rectangle.min.x + Self::PAD as i32,
+                    allocation.rectangle.min.y + Self::PAD as i32,
+                ),
+                point2(
+                    allocation.rectangle.max.x - Self::PAD as i32,
+                    allocation.rectangle.max.y - Self::PAD as i32,
+                ),
+            ),
             alloc_id: allocation.id,
         }))
     }
@@ -117,15 +145,32 @@ impl TextureManager {
         })
     }
 
-    fn grow_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, new_size: (u32, u32)) {
-        let max = device.limits().max_texture_dimension_2d;
+    pub fn size(&self, handle: TextureHandle) -> Option<(glam::Vec2)> {
+        self.regions.get(handle).map(|r| {
+            glam::vec2(
+                (r.rect.max.x - r.rect.min.x) as f32,
+                (r.rect.max.y - r.rect.min.y) as f32,
+            )
+        })
+    }
+
+    fn grow_atlas(&mut self, new_size: (u32, u32)) {
+        let max = self.device.limits().max_texture_dimension_2d;
         assert!(
             new_size.0 <= max && new_size.1 <= max,
             "atlas exceeds device limit"
         );
-        let new_texture = Texture::empty(device, new_size, Some("Atlas Texture"))
-            .expect("Error when creating texture and growing atlas");
-        let mut encoder = device.create_command_encoder(&Default::default());
+        let new_texture = Texture::empty(
+            &self.device,
+            new_size,
+            self.format.clone(),
+            wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            Some("Atlas Texture"),
+        )
+        .expect("Error when creating texture and growing atlas");
+        let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.atlas_texture.texture,
@@ -141,9 +186,9 @@ impl TextureManager {
             },
             self.atlas_texture.texture.size(),
         );
-        queue.submit(std::iter::once(encoder.finish()));
+        self.queue.submit(std::iter::once(encoder.finish()));
 
-        self.bind_group = new_texture.create_bind_group(device, &self.bind_group_layout);
+        self.bind_group = new_texture.create_bind_group(&self.device, &self.bind_group_layout);
         self.atlas_texture = new_texture;
         self.allocator
             .grow(size2(new_size.0 as i32, new_size.1 as i32));

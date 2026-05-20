@@ -9,11 +9,10 @@ use winit::{
 };
 
 use crate::{
+    get_image_bytes,
     renderer::{
-        Renderer,
-        draw_manager::DrawManager,
-        image::{batch::ImageBatch, instance::ImageInstance},
-        rectangle::instance::RectangleInstance,
+        Renderer, draw_manager::DrawManager, image::instance::ImageInstance,
+        rectangle::instance::RectangleInstance, split::RendererSplit,
     },
     texture_bytes,
 };
@@ -86,6 +85,11 @@ impl ApplicationHandler<Renderer> for App {
 }
 
 fn draw_elements(renderer: &mut Renderer) {
+    let RendererSplit {
+        mut painter,
+        textures,
+    } = renderer.split();
+
     let rectangle1 = RectangleInstance::new(
         glam::Vec2::new(300.0, 300.0),
         glam::Vec2::new(300.0, 300.0),
@@ -98,24 +102,26 @@ fn draw_elements(renderer: &mut Renderer) {
         0.0,
         glam::Vec4::new(0.0, 1.0, 0.0, 0.5),
     );
-    let house_handle = renderer.create_texture(texture_bytes!("house.png"));
-    let house_image = ImageInstance::new(
+    // let (rgba, dimensions) = get_image_bytes!(texture_bytes!("house.png"));
+    // let house_handle = textures
+    //     .add(&rgba, dimensions, 4)
+    //     .expect("Error when creating house image");
+    // let house_image = ImageInstance::new(
+    //     glam::Vec2::new(200.0, 200.0),
+    //     glam::Vec2::new(300.0, 300.0),
+    //     0.0,
+    //     textures.uv(house_handle).expect("House rendered"),
+    // );
+    // painter.create_image(house_image, DrawManager::CONTENT_LAYER);
+    // painter.create_rect(rectangle1, DrawManager::OVERLAY_LAYER);
+    let text = painter.create_text(
+        "Hello, World!",
         glam::Vec2::new(200.0, 200.0),
-        glam::Vec2::new(300.0, 300.0),
-        0.0,
-        renderer
-            .texture_manager
-            .uv(house_handle)
-            .expect("House rendered"),
+        (Some(600.0), None),
+        DrawManager::CONTENT_LAYER,
     );
-    renderer
-        .draw_manager
-        .image_batch()
-        .create(house_image, DrawManager::CONTENT_LAYER);
-    renderer
-        .draw_manager
-        .rectangle_batch()
-        .create(rectangle1, DrawManager::OVERLAY_LAYER);
+
+    println!("Text: {:?}", text);
 }
 
 pub fn run() -> anyhow::Result<()> {

@@ -1,15 +1,17 @@
 use anyhow::bail;
 
 use crate::renderer::{
-    image::batch::ImageBatch, rectangle::batch::RectangleBatch, texture_manager::TextureManager,
+    glyph::batch::GlyphBatch, image::batch::ImageBatch, rectangle::batch::RectangleBatch,
+    texture_manager::TextureManager,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct LayerId(i32);
 
 pub struct DrawManager {
-    rectangle_batch: RectangleBatch,
-    image_batch: ImageBatch,
+    pub(crate) rectangle_batch: RectangleBatch,
+    pub(crate) image_batch: ImageBatch,
+    pub(crate) glyph_batch: GlyphBatch,
     layers: Vec<LayerId>,
 }
 
@@ -23,6 +25,7 @@ impl DrawManager {
         config: &wgpu::SurfaceConfiguration,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
         texture_manager: &TextureManager,
+        glyph_atlas: &TextureManager,
     ) -> anyhow::Result<Self> {
         let layers = vec![
             Self::BACKGROUND_LAYER,
@@ -38,10 +41,19 @@ impl DrawManager {
                 Some(texture_manager.bind_group_layout()),
             ],
         );
+        let glyph_batch = GlyphBatch::new(
+            device,
+            config,
+            &[
+                Some(camera_bind_group_layout),
+                Some(glyph_atlas.bind_group_layout()),
+            ],
+        );
 
         Ok(Self {
             rectangle_batch,
             image_batch,
+            glyph_batch,
             layers,
         })
     }
@@ -68,22 +80,18 @@ impl DrawManager {
         queue: &wgpu::Queue,
         render_pass: &mut wgpu::RenderPass,
         texture_bind_group: &wgpu::BindGroup,
+        glyph_bind_group: &wgpu::BindGroup,
     ) {
         self.rectangle_batch
             .update_buffer(device, queue, &self.layers);
         self.image_batch.update_buffer(device, queue, &self.layers);
+        self.glyph_batch.update_buffer(device, queue, &self.layers);
         for layer in self.layers.iter() {
             self.rectangle_batch.draw_layer(render_pass, layer);
             self.image_batch
                 .draw_layer(render_pass, texture_bind_group, layer);
+            self.glyph_batch
+                .draw_layer(render_pass, glyph_bind_group, layer);
         }
-    }
-
-    pub fn rectangle_batch(&mut self) -> &mut RectangleBatch {
-        &mut self.rectangle_batch
-    }
-
-    pub fn image_batch(&mut self) -> &mut ImageBatch {
-        &mut self.image_batch
     }
 }

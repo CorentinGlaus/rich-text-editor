@@ -1,9 +1,16 @@
 use image::GenericImageView;
 
+#[derive(Clone)]
+pub enum TextureFormat {
+    R8,
+    Rgba8,
+}
+
 pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
+    pub format: TextureFormat,
 }
 
 impl Texture {
@@ -12,9 +19,10 @@ impl Texture {
         queue: &wgpu::Queue,
         bytes: &[u8],
         label: &str,
+        format: TextureFormat,
     ) -> anyhow::Result<Self> {
         let image = image::load_from_memory(bytes)?;
-        Self::from_image(device, queue, image, Some(label))
+        Self::from_image(device, queue, image, Some(label), format)
     }
 
     pub fn from_image(
@@ -22,6 +30,7 @@ impl Texture {
         queue: &wgpu::Queue,
         image: image::DynamicImage,
         label: Option<&str>,
+        format: TextureFormat,
     ) -> anyhow::Result<Self> {
         let diffuse_rgba = image.to_rgba8();
         let dimensions = image.dimensions();
@@ -36,7 +45,10 @@ impl Texture {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: match format {
+                TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
+                TextureFormat::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
+            },
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -73,12 +85,15 @@ impl Texture {
             texture,
             view,
             sampler,
+            format,
         })
     }
 
     pub fn empty(
         device: &wgpu::Device,
         dimensions: (u32, u32),
+        format: TextureFormat,
+        usage: wgpu::TextureUsages,
         label: Option<&str>,
     ) -> anyhow::Result<Self> {
         let texture_size = wgpu::Extent3d {
@@ -92,8 +107,11 @@ impl Texture {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            format: match format {
+                TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
+                TextureFormat::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
+            },
+            usage,
             view_formats: &[],
         });
 
@@ -113,6 +131,7 @@ impl Texture {
             texture,
             view,
             sampler,
+            format,
         })
     }
 
@@ -159,5 +178,12 @@ impl Texture {
                 },
             ],
         })
+    }
+
+    pub fn bytes_per_pixel(&self) -> u32 {
+        match self.format {
+            TextureFormat::Rgba8 => 4,
+            TextureFormat::R8 => 1,
+        }
     }
 }

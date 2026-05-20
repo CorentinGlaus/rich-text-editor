@@ -1,6 +1,10 @@
 pub mod draw_manager;
+pub mod glyph;
 pub mod image;
+pub mod painter;
 pub mod rectangle;
+pub mod split;
+pub mod text;
 pub mod texture_manager;
 
 use std::sync::Arc;
@@ -16,15 +20,19 @@ use crate::{
     renderer::{
         draw_manager::DrawManager,
         image::{batch::ImageBatch, instance::ImageInstance},
+        painter::Painter,
         rectangle::{batch::RectangleBatch, instance::RectangleInstance},
+        split::RendererSplit,
+        text::text_manager::TextManager,
         texture_manager::{TextureHandle, TextureManager},
     },
+    texture::TextureFormat,
 };
 
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     window: Arc<Window>,
@@ -33,7 +41,8 @@ pub struct Renderer {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     pub draw_manager: DrawManager,
-    pub texture_manager: TextureManager,
+    texture_manager: TextureManager,
+    pub text_manager: TextManager,
 }
 
 impl Renderer {
@@ -68,6 +77,8 @@ impl Renderer {
                 trace: wgpu::Trace::Off,
             })
             .await?;
+        let device = Arc::new(device);
+        let queue = Arc::new(queue);
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
@@ -98,14 +109,21 @@ impl Renderer {
         let camera_bind_group =
             create_camera_bind_group(&device, &camera_buffer, &camera_bind_group_layout);
 
-        let texture_manager = TextureManager::new(&device, (2048, 2048))
-            .expect("Error when creating the texture manager");
+        let texture_manager = TextureManager::new(
+            device.clone(),
+            queue.clone(),
+            (2048, 2048),
+            TextureFormat::Rgba8,
+        )
+        .expect("Error when creating the texture manager");
+        let text_manager = TextManager::new(device.clone(), queue.clone());
 
         let draw_manager = DrawManager::new(
             &device,
             &config,
             &camera_bind_group_layout,
             &texture_manager,
+            &text_manager.glyph_atlas,
         )
         .expect("Error when creating the draw manager");
 
@@ -122,6 +140,7 @@ impl Renderer {
             camera_bind_group,
             draw_manager,
             texture_manager,
+            text_manager,
         })
     }
 
@@ -213,6 +232,7 @@ impl Renderer {
                 &self.queue,
                 &mut render_pass,
                 self.texture_manager.bind_group(),
+                self.text_manager.glyph_atlas.bind_group(),
             );
         }
 
@@ -230,10 +250,16 @@ impl Renderer {
         }
     }
 
-    pub fn create_texture(&mut self, texture_bytes: &[u8]) -> TextureHandle {
-        self.texture_manager
-            .add(&self.device, &self.queue, texture_bytes)
-            .expect("Error when creating image")
+    pub fn split(&mut self) -> RendererSplit<'_> {
+        RendererSplit {
+            painter: Painter::new(
+                &mut self.draw_manager.rectangle_batch,
+                &mut self.draw_manager.image_batch,
+                &mut self.draw_manager.glyph_batch,
+                &mut self.text_manager,
+            ),
+            textures: &mut self.texture_manager,
+        }
     }
 
     pub fn update(&mut self) {}
