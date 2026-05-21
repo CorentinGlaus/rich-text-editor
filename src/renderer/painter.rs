@@ -53,4 +53,8 @@ impl<'a> Painter<'a> {
         self.texts
             .create_text(text, position, size, self.glyphs, layer, color)
     }
+
+    pub fn translate_text(&mut self, idx: u32, translation: glam::Vec2) {
+        self.texts.translate_text(idx, translation);
+    }
 }

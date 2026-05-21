@@ -20,12 +20,18 @@ impl Component for Button {
         );
         ctx.painter.create_rect(background, LayerId::CONTENT_LAYER);
 
-        ctx.painter.create_text(
+        let mut text = ctx.painter.create_text(
             &self.desc.text,
             ctx.absolute_position(glam::vec2(0.0, 0.0)),
             (Some(self.desc.width), Some(self.desc.height)),
             LayerId::CONTENT_LAYER,
             ctx.theme.text_color,
+        );
+        let text_pos_height_translation = (self.desc.height / 2.0) - (text.height / 2.0);
+        let text_pos_width_translation = (self.desc.width / 2.0) - (text.width / 2.0);
+        ctx.painter.translate_text(
+            text.transform_index,
+            glam::vec2(text_pos_width_translation, text_pos_height_translation),
         );
     }
 

@@ -7,6 +7,8 @@ use crate::renderer::glyph::batch::GlyphHandle;
 pub struct Text {
     pub glyphs: Vec<GlyphHandle>,
     pub transform_index: u32,
+    pub width: f32,
+    pub height: f32,
 }
 
 #[repr(C)]

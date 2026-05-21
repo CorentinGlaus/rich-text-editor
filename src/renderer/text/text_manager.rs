@@ -80,7 +80,12 @@ impl TextManager {
         };
         let transform_index = self.buffer.alloc(text_transform);
 
+        let mut width: f32 = 0.0;
+        let mut height: f32 = 0.0;
+
         for run in buffer.layout_runs() {
+            width = width.max(run.line_w);
+            height += run.line_height;
             for glyph in run.glyphs.iter() {
                 let physical = glyph.physical((0.0, run.line_y), 1.0);
                 let key = physical.cache_key;
@@ -132,6 +137,8 @@ impl TextManager {
         Text {
             glyphs,
             transform_index,
+            width,
+            height,
         }
     }
 
@@ -146,5 +153,11 @@ impl TextManager {
 
     pub fn text_buffer_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
         self.buffer.bind_group_layout()
+    }
+
+    pub fn translate_text(&mut self, idx: u32, translation: glam::Vec2) {
+        self.buffer.modify_transform(idx as usize, |t| {
+            t.translation += translation;
+        });
     }
 }
