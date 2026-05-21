@@ -124,7 +124,7 @@ impl Renderer {
             &config,
             &camera_bind_group_layout,
             &texture_manager,
-            &text_manager.glyph_atlas,
+            &text_manager,
         )
         .expect("Error when creating the draw manager");
 
@@ -228,12 +228,13 @@ impl Renderer {
 
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
+            self.text_manager.bind_buffer(&mut render_pass);
             self.draw_manager.draw(
                 &self.device,
                 &self.queue,
                 &mut render_pass,
                 self.texture_manager.bind_group(),
-                self.text_manager.glyph_atlas.bind_group(),
+                &mut self.text_manager,
             );
         }
 

@@ -2,7 +2,7 @@ use anyhow::bail;
 
 use crate::renderer::{
     glyph::batch::GlyphBatch, image::batch::ImageBatch, rectangle::batch::RectangleBatch,
-    texture_manager::TextureManager,
+    text::text_manager::TextManager, texture_manager::TextureManager,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
@@ -27,7 +27,7 @@ impl DrawManager {
         config: &wgpu::SurfaceConfiguration,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
         texture_manager: &TextureManager,
-        glyph_atlas: &TextureManager,
+        text_manager: &TextManager,
     ) -> anyhow::Result<Self> {
         let layers = vec![
             LayerId::BACKGROUND_LAYER,
@@ -48,7 +48,8 @@ impl DrawManager {
             config,
             &[
                 Some(camera_bind_group_layout),
-                Some(glyph_atlas.bind_group_layout()),
+                Some(text_manager.glyph_atlas.bind_group_layout()),
+                Some(text_manager.text_buffer_bind_group_layout()),
             ],
         );
 
@@ -82,7 +83,7 @@ impl DrawManager {
         queue: &wgpu::Queue,
         render_pass: &mut wgpu::RenderPass,
         texture_bind_group: &wgpu::BindGroup,
-        glyph_bind_group: &wgpu::BindGroup,
+        text_manager: &mut TextManager,
     ) {
         self.rectangle_batch
             .update_buffer(device, queue, &self.layers);
@@ -93,7 +94,7 @@ impl DrawManager {
             self.image_batch
                 .draw_layer(render_pass, texture_bind_group, layer);
             self.glyph_batch
-                .draw_layer(render_pass, glyph_bind_group, layer);
+                .draw_layer(render_pass, text_manager, layer);
         }
     }
 }

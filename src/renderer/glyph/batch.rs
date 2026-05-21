@@ -9,6 +9,7 @@ use crate::renderer::{
         instance::GlyphInstance,
         vertex::{GLYPH_INDICES, GLYPH_VERTICES, GlyphVertex},
     },
+    text::text_manager::TextManager,
 };
 
 slotmap::new_key_type! {
@@ -175,7 +176,7 @@ impl GlyphBatch {
     pub fn draw_layer(
         &mut self,
         render_pass: &mut wgpu::RenderPass,
-        texture_bind_group: &wgpu::BindGroup,
+        text_manager: &mut TextManager,
         layer: &LayerId,
     ) {
         let Some(range) = self.layer_ranges.get(&layer) else {
@@ -187,7 +188,8 @@ impl GlyphBatch {
         }
 
         render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(1, texture_bind_group, &[]);
+        render_pass.set_bind_group(1, text_manager.glyph_atlas.bind_group(), &[]);
+        text_manager.bind_buffer(render_pass);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -204,13 +206,13 @@ impl GlyphBatch {
     ) -> wgpu::RenderPipeline {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Image Render Pipeline Layout"),
+                label: Some("Glyph Render Pipeline Layout"),
                 bind_group_layouts: bind_groups,
                 immediate_size: 0,
             });
 
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Image Render Pipeline"),
+            label: Some("Glyph Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: shader,

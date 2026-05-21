@@ -4,14 +4,19 @@ struct CameraUniform {
 @group(0) @binding(0)
 var<uniform> camera_uniform: CameraUniform;
 
+struct TextTransform {
+    translation: vec2<f32>,
+};
+@group(2) @binding(0)
+var<storage, read> text_transforms: array<TextTransform>;
+
 struct InstanceInput {
     @location(2) position: vec2<f32>,
     @location(3) size: vec2<f32>,
-    @location(4) rotation: f32,
-    @location(5) uv_min: vec2<f32>,
-    @location(6) uv_max: vec2<f32>,
-    @location(7) _padding: vec3<f32>,
-    @location(8) color: vec4<f32>,
+    @location(4) uv_min: vec2<f32>,
+    @location(5) uv_max: vec2<f32>,
+    @location(6) transform_index: u32,
+    @location(7) color: vec4<f32>,
 };
 
 struct VertexInput {
@@ -27,16 +32,11 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
-    let cos_rotation = cos(instance.rotation);
-    let sin_rotation = sin(instance.rotation);
+    let text_tranform = text_transforms[instance.transform_index];
 
     let scaled = vec3(vertex.position, 0.0) * vec3<f32>(instance.size, 1.0);
-    let rotated = vec3<f32>(
-        scaled.x * cos_rotation - scaled.y * sin_rotation,
-        scaled.x * sin_rotation + scaled.y * cos_rotation,
-        scaled.z
-    );
-    let world_pos = vec3(instance.position, 0.0) + rotated;
+    let local_pos = vec3(instance.position, 0.0) + scaled;
+    let world_pos = vec3(text_tranform.translation, 0.0) + local_pos;
 
     var out: VertexOutput;
     out.tex_coords = mix(instance.uv_min, instance.uv_max, vertex.tex_coords);
