@@ -1,5 +1,6 @@
 pub mod draw_manager;
 pub mod glyph;
+mod helper;
 pub mod image;
 pub mod painter;
 pub mod rectangle;
@@ -243,13 +244,14 @@ impl Renderer {
     }
 
     pub fn split(&mut self) -> RendererSplit<'_> {
+        let painter = Painter::new(
+            &mut self.draw_manager.rectangle_batch,
+            &mut self.draw_manager.image_batch,
+            &mut self.draw_manager.glyph_batch,
+            &mut self.text_manager,
+        );
         RendererSplit {
-            painter: Painter::new(
-                &mut self.draw_manager.rectangle_batch,
-                &mut self.draw_manager.image_batch,
-                &mut self.draw_manager.glyph_batch,
-                &mut self.text_manager,
-            ),
+            painter,
             textures: &mut self.texture_manager,
         }
     }

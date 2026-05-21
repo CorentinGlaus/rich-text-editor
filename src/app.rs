@@ -9,23 +9,30 @@ use winit::{
 };
 
 use crate::{
+    components::{Component, root::Root},
+    context::Context,
+    event::MouseEvent,
     renderer::{
-        Renderer, draw_manager::DrawManager, rectangle::instance::RectangleInstance,
+        Renderer,
+        draw_manager::{DrawManager, LayerId},
+        rectangle::instance::RectangleInstance,
         split::RendererSplit,
     },
     theme::Theme,
 };
 
 pub struct App {
-    state: Option<Renderer>,
-    theme: Theme,
+    renderer: Option<Renderer>,
+    pub theme: Theme,
+    pub root: Root,
 }
 
 impl App {
     pub fn new() -> Self {
         Self {
-            state: None,
-            theme: Self::create_theme(),
+            renderer: None,
+            theme: create_theme(),
+            root: Root::new(),
         }
     }
 }
@@ -39,14 +46,17 @@ impl ApplicationHandler<Renderer> for App {
                 .expect("Failed to create window"),
         );
 
-        self.state =
+        self.renderer =
             Some(pollster::block_on(Renderer::new(window)).expect("Failed to create state"));
 
-        self.draw_elements();
+        let Some(mut ctx) = create_context(&mut self.renderer, &self.theme) else {
+            return;
+        };
+        self.root.propagate_init(&mut ctx);
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: Renderer) {
-        self.state = Some(event);
+        self.renderer = Some(event);
     }
 
     fn window_event(
@@ -55,7 +65,7 @@ impl ApplicationHandler<Renderer> for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        let state = match &mut self.state {
+        let state = match &mut self.renderer {
             Some(canvas) => canvas,
             None => return,
         };
@@ -82,6 +92,13 @@ impl ApplicationHandler<Renderer> for App {
                     },
                 ..
             } => self.handle_key(event_loop, &code, key_state.is_pressed()),
+            WindowEvent::CursorMoved { position, .. } => {
+                self.root
+                    .propagate_mouse_event(&MouseEvent::new_moved_event(glam::vec2(
+                        position.x as f32,
+                        position.y as f32,
+                    )));
+            }
             _ => {}
         }
     }
@@ -95,60 +112,22 @@ impl App {
             _ => {}
         }
     }
+}
 
-    fn create_theme() -> Theme {
-        Theme {
-            background_color: glam::Vec4::new(1.0, 1.0, 1.0, 1.0),
-            text_color: glam::Vec4::new(0.0, 0.0, 0.0, 1.0),
-        }
-    }
-
-    fn draw_elements(&mut self) {
-        let Some(ref mut renderer) = self.state else {
-            return;
-        };
-        let RendererSplit { mut painter, .. } = renderer.split();
-
-        let rectangle1 = RectangleInstance::new(
-            glam::Vec2::new(300.0, 300.0),
-            glam::Vec2::new(300.0, 300.0),
-            0.0,
-            glam::Vec4::new(1.0, 0.0, 0.0, 0.2),
-        );
-        let rectangle2 = RectangleInstance::new(
-            glam::Vec2::new(200.0, 200.0),
-            glam::Vec2::new(300.0, 300.0),
-            0.0,
-            glam::Vec4::new(0.0, 1.0, 0.0, 0.5),
-        );
-        // let (rgba, dimensions) = get_image_bytes!(texture_bytes!("house.png"));
-        // let house_handle = textures
-        //     .add(&rgba, dimensions, 4)
-        //     .expect("Error when creating house image");
-        // let house_image = ImageInstance::new(
-        //     glam::Vec2::new(200.0, 200.0),
-        //     glam::Vec2::new(300.0, 300.0),
-        //     0.0,
-        //     textures.uv(house_handle).expect("House rendered"),
-        // );
-        // painter.create_image(house_image, DrawManager::CONTENT_LAYER);
-        // painter.create_rect(rectangle1, DrawManager::OVERLAY_LAYER);
-        let text = painter.create_text(
-            "Hello, World!",
-            glam::Vec2::new(200.0, 200.0),
-            (Some(600.0), None),
-            DrawManager::CONTENT_LAYER,
-            self.theme.text_color,
-        );
-
-        println!("Text: {:?}", text);
+fn create_theme() -> Theme {
+    Theme {
+        background_color: glam::Vec4::new(1.0, 1.0, 1.0, 1.0),
+        text_color: glam::Vec4::new(0.0, 0.0, 0.0, 1.0),
+        primary_color: glam::Vec4::new(0.71765, 0.72549, 0.74510, 1.0),
+        // primary_color: glam::Vec4::new(0.0, 0.0, 0.0, 1.0),
     }
 }
 
-pub fn run() -> anyhow::Result<()> {
-    env_logger::init();
-    let event_loop = EventLoop::with_user_event().build()?;
-    let mut app = App::new();
-    event_loop.run_app(&mut app)?;
-    Ok(())
+fn create_context<'t, 'p>(
+    renderer: &'p mut Option<Renderer>,
+    theme: &'t Theme,
+) -> Option<Context<'t, 'p>> {
+    let renderer = renderer.as_mut()?;
+    let RendererSplit { painter, .. } = renderer.split();
+    Some(Context::new(painter, theme))
 }

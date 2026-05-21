@@ -51,6 +51,6 @@ impl<'a> Painter<'a> {
         color: glam::Vec4,
     ) -> Text {
         self.texts
-        .create_text(text, position, size, self.glyphs, layer, color)
+            .create_text(text, position, size, self.glyphs, layer, color)
     }
 }

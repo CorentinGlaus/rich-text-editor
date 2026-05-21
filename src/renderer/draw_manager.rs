@@ -8,6 +8,12 @@ use crate::renderer::{
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct LayerId(i32);
 
+impl LayerId {
+    pub const BACKGROUND_LAYER: LayerId = LayerId(0);
+    pub const CONTENT_LAYER: LayerId = LayerId(1);
+    pub const OVERLAY_LAYER: LayerId = LayerId(2);
+}
+
 pub struct DrawManager {
     pub(crate) rectangle_batch: RectangleBatch,
     pub(crate) image_batch: ImageBatch,
@@ -16,10 +22,6 @@ pub struct DrawManager {
 }
 
 impl DrawManager {
-    pub const BACKGROUND_LAYER: LayerId = LayerId(0);
-    pub const CONTENT_LAYER: LayerId = LayerId(1);
-    pub const OVERLAY_LAYER: LayerId = LayerId(2);
-
     pub fn new(
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
@@ -28,9 +30,9 @@ impl DrawManager {
         glyph_atlas: &TextureManager,
     ) -> anyhow::Result<Self> {
         let layers = vec![
-            Self::BACKGROUND_LAYER,
-            Self::CONTENT_LAYER,
-            Self::OVERLAY_LAYER,
+            LayerId::BACKGROUND_LAYER,
+            LayerId::CONTENT_LAYER,
+            LayerId::OVERLAY_LAYER,
         ];
         let rectangle_batch = RectangleBatch::new(device, config, camera_bind_group_layout);
         let image_batch = ImageBatch::new(
